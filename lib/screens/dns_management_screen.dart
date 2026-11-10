@@ -1071,7 +1071,7 @@ class _DnsManagementScreenState extends State<DnsManagementScreen> {
               children: [
                 CircularProgressIndicator(),
                 SizedBox(height: 16),
-                Text('Fetching servers from dnstt.xyz...'),
+                Text('Fetching online server list...'),
               ],
             ),
           ),
@@ -1105,7 +1105,7 @@ class _DnsManagementScreenState extends State<DnsManagementScreen> {
           if (totalConfigs == 0 && totalDns == 0) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('No new servers found on dnstt.xyz'),
+                content: Text('No new servers found in online list'),
               ),
             );
           } else {
@@ -1141,7 +1141,7 @@ class _DnsManagementScreenState extends State<DnsManagementScreen> {
         Navigator.pop(context); // Close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch from dnstt.xyz: ${e.toString()}'),
+            content: Text('Failed to fetch online list: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),

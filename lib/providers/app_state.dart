@@ -1,12 +1,19 @@
 import 'package:flutter/foundation.dart';
 import '../models/dns_server.dart';
 import '../models/dnstt_config.dart';
+import '../theme/app_theme.dart';
 import '../services/storage_service.dart';
 import '../services/dnstt_service.dart';
 import '../services/vpn_service.dart';
 import '../services/system_dns_service.dart';
 
 enum ConnectionStatus { disconnected, connecting, connected, error }
+
+class ConnectionLogEntry {
+  final DateTime time;
+  final String message;
+  const ConnectionLogEntry(this.time, this.message);
+}
 
 class AppState extends ChangeNotifier {
   StorageService? _storage;
@@ -29,6 +36,12 @@ class AppState extends ChangeNotifier {
   bool _useAutoDns = false;
   DnsServer? _autoDnsServer;
   String? _autoDnsError;
+  AppThemeOption _themeOption = AppThemeOption.amoled;
+  bool _autoConnect = false;
+  bool _keepAlive = true;
+  bool _showConnectionLog = true;
+  final List<ConnectionLogEntry> _connectionLog = [];
+  DateTime? _connectedAt;
 
   List<DnsServer> get dnsServers => _dnsServers;
   List<DnsttConfig> get dnsttConfigs => _dnsttConfigs;
@@ -43,6 +56,13 @@ class AppState extends ChangeNotifier {
   String get testUrl => _testUrl;
   int get proxyPort => _proxyPort;
   String get connectionMode => _connectionMode;
+  AppThemeOption get themeOption => _themeOption;
+  bool get autoConnect => _autoConnect;
+  bool get keepAlive => _keepAlive;
+  bool get showConnectionLog => _showConnectionLog;
+  List<ConnectionLogEntry> get connectionLog => List.unmodifiable(_connectionLog);
+  DateTime? get connectedAt => _connectedAt;
+
   int get testingProgress => _testingProgress;
   int get testingTotal => _testingTotal;
   int get testingWorking => _testingWorking;
@@ -79,6 +99,50 @@ class AppState extends ChangeNotifier {
     _useAutoDns = await _storage!.getUseAutoDns();
     if (_useAutoDns) await _detectSystemDns();
 
+    _themeOption = AppThemeOptionX.fromName(await _storage!.getAppTheme());
+    _autoConnect = await _storage!.getAutoConnect();
+    _keepAlive = await _storage!.getKeepAlive();
+    _showConnectionLog = await _storage!.getShowConnectionLog();
+    addLog('DNS Pro started');
+
+    notifyListeners();
+  }
+
+  // Appearance & behaviour preferences
+  Future<void> setThemeOption(AppThemeOption option) async {
+    _themeOption = option;
+    await _storage!.setAppTheme(option.name);
+    notifyListeners();
+  }
+
+  Future<void> setAutoConnect(bool value) async {
+    _autoConnect = value;
+    await _storage!.setAutoConnect(value);
+    notifyListeners();
+  }
+
+  Future<void> setKeepAlive(bool value) async {
+    _keepAlive = value;
+    await _storage!.setKeepAlive(value);
+    notifyListeners();
+  }
+
+  Future<void> setShowConnectionLog(bool value) async {
+    _showConnectionLog = value;
+    await _storage!.setShowConnectionLog(value);
+    notifyListeners();
+  }
+
+  // Connection log
+  void addLog(String message) {
+    _connectionLog.add(ConnectionLogEntry(DateTime.now(), message));
+    if (_connectionLog.length > 200) {
+      _connectionLog.removeRange(0, _connectionLog.length - 200);
+    }
+  }
+
+  void clearConnectionLog() {
+    _connectionLog.clear();
     notifyListeners();
   }
 
@@ -490,6 +554,30 @@ class AppState extends ChangeNotifier {
 
   // Connection
   void setConnectionStatus(ConnectionStatus status, [String? error]) {
+    if (_connectionStatus != status) {
+      switch (status) {
+        case ConnectionStatus.connecting:
+          addLog('Starting connection…');
+          if (_activeConfig != null) {
+            addLog('Resolving domain: ${_activeConfig!.tunnelDomain}');
+          }
+          break;
+        case ConnectionStatus.connected:
+          _connectedAt = DateTime.now();
+          addLog('Connected successfully');
+          if (_activeDns != null) addLog('DNS: ${_activeDns!.address}');
+          addLog('Tunnel established');
+          break;
+        case ConnectionStatus.disconnected:
+          _connectedAt = null;
+          addLog('Disconnected');
+          break;
+        case ConnectionStatus.error:
+          _connectedAt = null;
+          addLog('Connection error${error != null ? ': $error' : ''}');
+          break;
+      }
+    }
     _connectionStatus = status;
     _connectionError = error;
     notifyListeners();

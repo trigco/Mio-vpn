@@ -10,8 +10,49 @@ import '../providers/app_state.dart';
 import '../models/dnstt_config.dart';
 import '../services/config_import_export_service.dart';
 
-class ConfigManagementScreen extends StatelessWidget {
+class ConfigManagementScreen extends StatefulWidget {
   const ConfigManagementScreen({super.key});
+
+  @override
+  State<ConfigManagementScreen> createState() => _ConfigManagementScreenState();
+}
+
+enum _ConfigFilter { all, socks, ssh, slipstream }
+
+class _ConfigManagementScreenState extends State<ConfigManagementScreen> {
+  _ConfigFilter _filter = _ConfigFilter.all;
+
+  bool _matches(DnsttConfig c) => switch (_filter) {
+        _ConfigFilter.all => true,
+        _ConfigFilter.socks => c.tunnelType == TunnelType.socks5,
+        _ConfigFilter.ssh => c.tunnelType == TunnelType.ssh,
+        _ConfigFilter.slipstream => c.isSlipstream,
+      };
+
+  Widget _buildFilterChips(AppState state) {
+    Widget chip(_ConfigFilter f, String label) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 7),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: _filter == f,
+          onSelected: (_) => setState(() => _filter = f),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          chip(_ConfigFilter.all, 'All (${state.dnsttConfigs.length})'),
+          chip(_ConfigFilter.socks, 'Socks'),
+          chip(_ConfigFilter.ssh, 'SSH'),
+          chip(_ConfigFilter.slipstream, 'Slipstream'),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +112,7 @@ class ConfigManagementScreen extends StatelessWidget {
                   children: [
                     Icon(Icons.public),
                     SizedBox(width: 8),
-                    Text('Import from dnstt.xyz'),
+                    Text('Import Online Server List'),
                   ],
                 ),
               ),
@@ -123,17 +164,26 @@ class ConfigManagementScreen extends StatelessWidget {
             );
           }
 
+          final filtered = state.dnsttConfigs.where(_matches).toList();
+
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: state.dnsttConfigs.length,
+            itemCount: filtered.length + 1 + (filtered.isEmpty ? 1 : 0),
             itemBuilder: (context, index) {
-              final config = state.dnsttConfigs[index];
+              if (index == 0) return _buildFilterChips(state);
+              if (filtered.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 32),
+                  child: Center(child: Text('No configs match this filter')),
+                );
+              }
+              final config = filtered[index - 1];
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: InkWell(
                   onTap: () => state.setActiveConfig(config),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(26),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -641,7 +691,7 @@ class ConfigManagementScreen extends StatelessWidget {
               children: [
                 CircularProgressIndicator(),
                 SizedBox(height: 16),
-                Text('Fetching servers from dnstt.xyz...'),
+                Text('Fetching online server list...'),
               ],
             ),
           ),
@@ -657,7 +707,7 @@ class ConfigManagementScreen extends StatelessWidget {
 
         if (result.configs.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No configs found on dnstt.xyz')),
+            const SnackBar(content: Text('No configs found in online list')),
           );
           return;
         }
@@ -688,7 +738,7 @@ class ConfigManagementScreen extends StatelessWidget {
         Navigator.pop(context); // Close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch from dnstt.xyz: ${e.toString()}'),
+            content: Text('Failed to fetch online list: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),

@@ -12,6 +12,10 @@ class StorageService {
   static const String _proxyPortKey = 'proxy_port';
   static const String _connectionModeKey = 'connection_mode';
   static const String _useAutoDnsKey = 'use_auto_dns';
+  static const String _appThemeKey = 'app_theme';
+  static const String _autoConnectKey = 'auto_connect';
+  static const String _keepAliveKey = 'keep_alive';
+  static const String _showLogKey = 'show_connection_log';
   static const int defaultProxyPort = 1080;
 
   final SharedPreferences _prefs;
@@ -150,5 +154,31 @@ class StorageService {
 
   Future<void> setUseAutoDns(bool value) async {
     await _prefs.setBool(_useAutoDnsKey, value);
+  }
+
+  // App theme (AppThemeOption name, e.g. 'amoled')
+  Future<String?> getAppTheme() async => _prefs.getString(_appThemeKey);
+
+  Future<void> setAppTheme(String value) async {
+    await _prefs.setString(_appThemeKey, value);
+  }
+
+  // Behaviour preferences
+  Future<bool> getAutoConnect() async => _prefs.getBool(_autoConnectKey) ?? false;
+
+  Future<void> setAutoConnect(bool value) async {
+    await _prefs.setBool(_autoConnectKey, value);
+  }
+
+  Future<bool> getKeepAlive() async => _prefs.getBool(_keepAliveKey) ?? true;
+
+  Future<void> setKeepAlive(bool value) async {
+    await _prefs.setBool(_keepAliveKey, value);
+  }
+
+  Future<bool> getShowConnectionLog() async => _prefs.getBool(_showLogKey) ?? true;
+
+  Future<void> setShowConnectionLog(bool value) async {
+    await _prefs.setBool(_showLogKey, value);
   }
 }
