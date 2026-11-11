@@ -10,8 +10,49 @@ import '../providers/app_state.dart';
 import '../models/dnstt_config.dart';
 import '../services/config_import_export_service.dart';
 
-class ConfigManagementScreen extends StatelessWidget {
+class ConfigManagementScreen extends StatefulWidget {
   const ConfigManagementScreen({super.key});
+
+  @override
+  State<ConfigManagementScreen> createState() => _ConfigManagementScreenState();
+}
+
+enum _ConfigFilter { all, socks, ssh, slipstream }
+
+class _ConfigManagementScreenState extends State<ConfigManagementScreen> {
+  _ConfigFilter _filter = _ConfigFilter.all;
+
+  bool _matches(DnsttConfig c) => switch (_filter) {
+        _ConfigFilter.all => true,
+        _ConfigFilter.socks => c.tunnelType == TunnelType.socks5,
+        _ConfigFilter.ssh => c.tunnelType == TunnelType.ssh,
+        _ConfigFilter.slipstream => c.isSlipstream,
+      };
+
+  Widget _buildFilterChips(AppState state) {
+    Widget chip(_ConfigFilter f, String label) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 7),
+        child: ChoiceChip(
+          label: Text(label),
+          selected: _filter == f,
+          onSelected: (_) => setState(() => _filter = f),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          chip(_ConfigFilter.all, 'All (${state.dnsttConfigs.length})'),
+          chip(_ConfigFilter.socks, 'Socks'),
+          chip(_ConfigFilter.ssh, 'SSH'),
+          chip(_ConfigFilter.slipstream, 'Slipstream'),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +112,7 @@ class ConfigManagementScreen extends StatelessWidget {
                   children: [
                     Icon(Icons.public),
                     SizedBox(width: 8),
-                    Text('Import from dnstt.xyz'),
+                    Text('Import Online Server List'),
                   ],
                 ),
               ),
@@ -123,17 +164,26 @@ class ConfigManagementScreen extends StatelessWidget {
             );
           }
 
+          final filtered = state.dnsttConfigs.where(_matches).toList();
+
           return ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: state.dnsttConfigs.length,
+            itemCount: filtered.length + 1 + (filtered.isEmpty ? 1 : 0),
             itemBuilder: (context, index) {
-              final config = state.dnsttConfigs[index];
+              if (index == 0) return _buildFilterChips(state);
+              if (filtered.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.only(top: 32),
+                  child: Center(child: Text('No configs match this filter')),
+                );
+              }
+              final config = filtered[index - 1];
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: InkWell(
                   onTap: () => state.setActiveConfig(config),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(26),
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -354,7 +404,6 @@ class ConfigManagementScreen extends StatelessWidget {
               decoration: const InputDecoration(
                 labelText: 'Config URL',
                 hintText: 'https://example.com/configs.json',
-                border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.url,
               autocorrect: false,
@@ -641,7 +690,7 @@ class ConfigManagementScreen extends StatelessWidget {
               children: [
                 CircularProgressIndicator(),
                 SizedBox(height: 16),
-                Text('Fetching servers from dnstt.xyz...'),
+                Text('Fetching online server list...'),
               ],
             ),
           ),
@@ -657,7 +706,7 @@ class ConfigManagementScreen extends StatelessWidget {
 
         if (result.configs.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No configs found on dnstt.xyz')),
+            const SnackBar(content: Text('No configs found in online list')),
           );
           return;
         }
@@ -688,7 +737,7 @@ class ConfigManagementScreen extends StatelessWidget {
         Navigator.pop(context); // Close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to fetch from dnstt.xyz: ${e.toString()}'),
+            content: Text('Failed to fetch online list: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
@@ -783,27 +832,44 @@ class _ConfigDialogState extends State<_ConfigDialog> {
   late TextEditingController domainController;
   late TextEditingController sshUsernameController;
   late TextEditingController sshPasswordController;
+  late TextEditingController sshPortController;
+  late TextEditingController sshHostController;
+  late TextEditingController socksUsernameController;
+  late TextEditingController socksPasswordController;
+  late TextEditingController keepAliveController;
 
   late TunnelType selectedTunnelType;
   late TransportType selectedTransportType;
   late String selectedCongestionControl;
-  late int keepAliveInterval;
   late bool gsoEnabled;
   bool showPassword = false;
+  bool showSocksPassword = false;
+
+  bool get _isSlipstream => selectedTransportType == TransportType.slipstream;
+  bool get _isSsh => selectedTunnelType == TunnelType.ssh;
 
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(text: widget.existingConfig?.name ?? '');
-    publicKeyController = TextEditingController(text: widget.existingConfig?.publicKey ?? '');
-    domainController = TextEditingController(text: widget.existingConfig?.tunnelDomain ?? '');
-    sshUsernameController = TextEditingController(text: widget.existingConfig?.sshUsername ?? '');
-    sshPasswordController = TextEditingController(text: widget.existingConfig?.sshPassword ?? '');
-    selectedTunnelType = widget.existingConfig?.tunnelType ?? TunnelType.socks5;
-    selectedTransportType = widget.existingConfig?.transportType ?? TransportType.dnstt;
-    selectedCongestionControl = widget.existingConfig?.congestionControl ?? 'dcubic';
-    keepAliveInterval = widget.existingConfig?.keepAliveInterval ?? 400;
-    gsoEnabled = widget.existingConfig?.gsoEnabled ?? false;
+    final c = widget.existingConfig;
+    nameController = TextEditingController(text: c?.name ?? '');
+    publicKeyController = TextEditingController(text: c?.publicKey ?? '');
+    domainController = TextEditingController(text: c?.tunnelDomain ?? '');
+    sshUsernameController = TextEditingController(text: c?.sshUsername ?? '');
+    sshPasswordController = TextEditingController(text: c?.sshPassword ?? '');
+    sshPortController =
+        TextEditingController(text: c?.sshPort?.toString() ?? '');
+    sshHostController = TextEditingController(text: c?.sshHost ?? '');
+    socksUsernameController =
+        TextEditingController(text: c?.socksUsername ?? '');
+    socksPasswordController =
+        TextEditingController(text: c?.socksPassword ?? '');
+    keepAliveController =
+        TextEditingController(text: (c?.keepAliveInterval ?? 400).toString());
+    selectedTunnelType = c?.tunnelType ?? TunnelType.socks5;
+    selectedTransportType = c?.transportType ?? TransportType.dnstt;
+    selectedCongestionControl = c?.congestionControl ?? 'dcubic';
+    gsoEnabled = c?.gsoEnabled ?? false;
   }
 
   @override
@@ -813,11 +879,17 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     domainController.dispose();
     sshUsernameController.dispose();
     sshPasswordController.dispose();
+    sshPortController.dispose();
+    sshHostController.dispose();
+    socksUsernameController.dispose();
+    socksPasswordController.dispose();
+    keepAliveController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Text(widget.existingConfig == null ? 'Add Config' : 'Edit Config'),
       content: SingleChildScrollView(
@@ -830,32 +902,19 @@ class _ConfigDialogState extends State<_ConfigDialog> {
               decoration: const InputDecoration(
                 labelText: 'Config Name',
                 hintText: 'e.g., My Server',
-                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
-            // Transport type selector
-            const Text(
-              'Protocol',
-              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildTypeTag(
-                  label: 'DNSTT',
-                  isSelected: selectedTransportType == TransportType.dnstt,
-                  onTap: () => setState(() => selectedTransportType = TransportType.dnstt),
-                  color: Colors.teal,
-                ),
-                const SizedBox(width: 8),
-                _buildTypeTag(
-                  label: 'Slipstream',
-                  isSelected: selectedTransportType == TransportType.slipstream,
-                  onTap: () => setState(() => selectedTransportType = TransportType.slipstream),
-                  color: Colors.orange,
-                ),
-              ],
+            _sectionLabel('Protocol'),
+            _buildSegmented<TransportType>(
+              values: TransportType.values,
+              selected: selectedTransportType,
+              onChanged: (v) => setState(() => selectedTransportType = v),
+              labelFor: (v) =>
+                  v == TransportType.slipstream ? 'Slipstream' : 'DNSTT',
+              colorFor: (v) => v == TransportType.slipstream
+                  ? const Color(0xFFFF9800)
+                  : const Color(0xFF26A69A),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -863,40 +922,35 @@ class _ConfigDialogState extends State<_ConfigDialog> {
               decoration: const InputDecoration(
                 labelText: 'Tunnel Domain',
                 hintText: 'e.g., t.example.com',
-                border: OutlineInputBorder(),
               ),
+              autocorrect: false,
             ),
-            // Public key field - only for DNSTT
-            if (selectedTransportType == TransportType.dnstt) ...[
+            if (!_isSlipstream) ...[
               const SizedBox(height: 16),
               TextField(
                 controller: publicKeyController,
                 decoration: const InputDecoration(
                   labelText: 'Public Key (64 hex chars)',
                   hintText: 'Paste your public key here',
-                  border: OutlineInputBorder(),
                 ),
                 maxLines: 2,
                 autocorrect: false,
                 enableSuggestions: false,
               ),
             ],
-            // Slipstream-specific settings
-            if (selectedTransportType == TransportType.slipstream) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Slipstream Settings',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 12),
+            if (_isSlipstream) ...[
+              const SizedBox(height: 20),
+              _sectionLabel('Slipstream Settings', bold: true),
               DropdownButtonFormField<String>(
-                value: selectedCongestionControl,
+                initialValue: selectedCongestionControl,
                 decoration: const InputDecoration(
                   labelText: 'Congestion Control',
-                  border: OutlineInputBorder(),
                 ),
+                dropdownColor: scheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(18),
                 items: const [
-                  DropdownMenuItem(value: 'dcubic', child: Text('DCubic (default)')),
+                  DropdownMenuItem(
+                      value: 'dcubic', child: Text('DCubic (default)')),
                   DropdownMenuItem(value: 'bbr', child: Text('BBR')),
                 ],
                 onChanged: (value) {
@@ -906,28 +960,15 @@ class _ConfigDialogState extends State<_ConfigDialog> {
                 },
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: TextEditingController(text: keepAliveInterval.toString()),
-                      decoration: const InputDecoration(
-                        labelText: 'Keep Alive (ms)',
-                        border: OutlineInputBorder(),
-                        helperText: 'Default: 400ms',
-                      ),
-                      keyboardType: TextInputType.number,
-                      onChanged: (value) {
-                        final parsed = int.tryParse(value);
-                        if (parsed != null && parsed > 0) {
-                          keepAliveInterval = parsed;
-                        }
-                      },
-                    ),
-                  ),
-                ],
+              TextField(
+                controller: keepAliveController,
+                decoration: const InputDecoration(
+                  labelText: 'Keep Alive (ms)',
+                  helperText: 'Default: 400ms',
+                ),
+                keyboardType: TextInputType.number,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 4),
               SwitchListTile(
                 title: const Text('GSO (Generic Segmentation Offload)'),
                 subtitle: const Text('May improve throughput'),
@@ -937,32 +978,28 @@ class _ConfigDialogState extends State<_ConfigDialog> {
               ),
             ],
             const SizedBox(height: 16),
-            const Text(
-              'Tunnel Type',
-              style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+            _sectionLabel('Tunnel Type'),
+            _buildSegmented<TunnelType>(
+              values: TunnelType.values,
+              selected: selectedTunnelType,
+              onChanged: (v) => setState(() => selectedTunnelType = v),
+              labelFor: (v) => v == TunnelType.ssh ? 'SSH' : 'Socks',
+              colorFor: (v) => v == TunnelType.ssh
+                  ? const Color(0xFFBA68C8)
+                  : const Color(0xFF42A5F5),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildTypeTag(
-                  label: 'Socks',
-                  isSelected: selectedTunnelType == TunnelType.socks5,
-                  onTap: () => setState(() => selectedTunnelType = TunnelType.socks5),
+            if (_isSsh) ...[
+              const SizedBox(height: 20),
+              _sectionLabel('SSH Settings', bold: true),
+              TextField(
+                controller: sshHostController,
+                decoration: const InputDecoration(
+                  labelText: 'SSH Host (target)',
+                  hintText: 'e.g., 13.212.225.4',
+                  helperText: 'Server reached through the tunnel',
                 ),
-                const SizedBox(width: 8),
-                _buildTypeTag(
-                  label: 'SSH',
-                  isSelected: selectedTunnelType == TunnelType.ssh,
-                  onTap: () => setState(() => selectedTunnelType = TunnelType.ssh),
-                ),
-              ],
-            ),
-            // SSH settings
-            if (selectedTunnelType == TunnelType.ssh) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'SSH Settings',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                autocorrect: false,
+                enableSuggestions: false,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -970,23 +1007,75 @@ class _ConfigDialogState extends State<_ConfigDialog> {
                 decoration: const InputDecoration(
                   labelText: 'SSH Username',
                   hintText: 'e.g., root',
-                  border: OutlineInputBorder(),
                 ),
                 autocorrect: false,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextField(
+                      controller: sshPasswordController,
+                      decoration: InputDecoration(
+                        labelText: 'SSH Password',
+                        hintText: 'Your SSH password',
+                        suffixIcon: IconButton(
+                          icon: Icon(showPassword
+                              ? Icons.visibility_off
+                              : Icons.visibility),
+                          onPressed: () =>
+                              setState(() => showPassword = !showPassword),
+                        ),
+                      ),
+                      obscureText: !showPassword,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: sshPortController,
+                      decoration: const InputDecoration(
+                        labelText: 'SSH Port',
+                        hintText: '22',
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (!_isSsh) ...[
+              const SizedBox(height: 20),
+              _sectionLabel('SOCKS Authentication (optional)', bold: true),
               TextField(
-                controller: sshPasswordController,
+                controller: socksUsernameController,
+                decoration: const InputDecoration(
+                  labelText: 'SOCKS Username',
+                  hintText: 'Leave empty if not required',
+                ),
+                autocorrect: false,
+                enableSuggestions: false,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: socksPasswordController,
                 decoration: InputDecoration(
-                  labelText: 'SSH Password',
-                  hintText: 'Your SSH password',
-                  border: const OutlineInputBorder(),
+                  labelText: 'SOCKS Password',
+                  hintText: 'Leave empty if not required',
                   suffixIcon: IconButton(
-                    icon: Icon(showPassword ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => showPassword = !showPassword),
+                    icon: Icon(showSocksPassword
+                        ? Icons.visibility_off
+                        : Icons.visibility),
+                    onPressed: () => setState(
+                        () => showSocksPassword = !showSocksPassword),
                   ),
                 ),
-                obscureText: !showPassword,
+                obscureText: !showSocksPassword,
                 autocorrect: false,
                 enableSuggestions: false,
               ),
@@ -999,7 +1088,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        ElevatedButton(
+        FilledButton(
           onPressed: _saveConfig,
           child: Text(widget.existingConfig == null ? 'Add' : 'Save'),
         ),
@@ -1007,28 +1096,66 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     );
   }
 
-  Widget _buildTypeTag({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-    Color? color,
+  Widget _sectionLabel(String text, {bool bold = false}) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: bold ? 12 : 8),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+          fontSize: bold ? 15 : 13.5,
+        ),
+      ),
+    );
+  }
+
+  /// Segmented pill selector with an unambiguous selected state in every
+  /// theme: the selected segment is filled with its accent color and dark
+  /// text; unselected segments sit on the raised surface color.
+  Widget _buildSegmented<T>({
+    required List<T> values,
+    required T selected,
+    required ValueChanged<T> onChanged,
+    required String Function(T) labelFor,
+    required Color Function(T) colorFor,
   }) {
-    final activeColor = color ?? Theme.of(context).primaryColor;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? activeColor : Colors.grey[200],
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[700],
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        children: [
+          for (final v in values)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => onChanged(v),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(
+                    color: v == selected ? colorFor(v) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    labelFor(v),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: v == selected
+                          ? Colors.white
+                          : scheme.onSurfaceVariant,
+                      fontWeight:
+                          v == selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1038,7 +1165,6 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     final publicKey = publicKeyController.text.trim();
     final domain = domainController.text.trim();
 
-    // Basic validation
     if (name.isEmpty || domain.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill name and domain')),
@@ -1046,8 +1172,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
       return;
     }
 
-    // Public key validation (only for DNSTT)
-    if (selectedTransportType == TransportType.dnstt) {
+    if (!_isSlipstream) {
       if (publicKey.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Public key is required for DNSTT')),
@@ -1062,8 +1187,8 @@ class _ConfigDialogState extends State<_ConfigDialog> {
       }
     }
 
-    // Validate SSH settings if SSH type selected
-    if (selectedTunnelType == TunnelType.ssh) {
+    int? sshPort;
+    if (_isSsh) {
       final sshUsername = sshUsernameController.text.trim();
       final sshPassword = sshPasswordController.text;
 
@@ -1073,62 +1198,75 @@ class _ConfigDialogState extends State<_ConfigDialog> {
         );
         return;
       }
-
       if (sshPassword.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please enter SSH password')),
         );
         return;
       }
+      final portText = sshPortController.text.trim();
+      if (portText.isNotEmpty) {
+        sshPort = int.tryParse(portText);
+        if (sshPort == null || sshPort < 1 || sshPort > 65535) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('SSH port must be between 1 and 65535')),
+          );
+          return;
+        }
+      }
     }
 
+    final socksUsername =
+        !_isSsh && socksUsernameController.text.trim().isNotEmpty
+            ? socksUsernameController.text.trim()
+            : null;
+    final socksPassword = !_isSsh && socksPasswordController.text.isNotEmpty
+        ? socksPasswordController.text
+        : null;
+
+    final keepAlive = int.tryParse(keepAliveController.text.trim());
     final state = context.read<AppState>();
 
     if (widget.existingConfig == null) {
       state.addDnsttConfig(DnsttConfig(
         name: name,
-        publicKey: selectedTransportType == TransportType.dnstt ? publicKey : '',
+        publicKey: !_isSlipstream ? publicKey : '',
         tunnelDomain: domain,
         tunnelType: selectedTunnelType,
         transportType: selectedTransportType,
-        sshUsername: selectedTunnelType == TunnelType.ssh
-            ? sshUsernameController.text.trim()
+        sshUsername: _isSsh ? sshUsernameController.text.trim() : null,
+        sshPassword: _isSsh ? sshPasswordController.text : null,
+        sshPort: _isSsh ? sshPort : null,
+        sshHost: _isSsh && sshHostController.text.trim().isNotEmpty
+            ? sshHostController.text.trim()
             : null,
-        sshPassword: selectedTunnelType == TunnelType.ssh
-            ? sshPasswordController.text
-            : null,
-        congestionControl: selectedTransportType == TransportType.slipstream
-            ? selectedCongestionControl
-            : null,
-        keepAliveInterval: selectedTransportType == TransportType.slipstream
-            ? keepAliveInterval
-            : null,
-        gsoEnabled: selectedTransportType == TransportType.slipstream
-            ? gsoEnabled
-            : null,
+        socksUsername: socksUsername,
+        socksPassword: socksPassword,
+        congestionControl: _isSlipstream ? selectedCongestionControl : null,
+        keepAliveInterval:
+            _isSlipstream ? (keepAlive != null && keepAlive > 0 ? keepAlive : 400) : null,
+        gsoEnabled: _isSlipstream ? gsoEnabled : null,
       ));
     } else {
-      widget.existingConfig!.name = name;
-      widget.existingConfig!.publicKey = selectedTransportType == TransportType.dnstt ? publicKey : '';
-      widget.existingConfig!.tunnelDomain = domain;
-      widget.existingConfig!.tunnelType = selectedTunnelType;
-      widget.existingConfig!.transportType = selectedTransportType;
-      widget.existingConfig!.sshUsername = selectedTunnelType == TunnelType.ssh
-          ? sshUsernameController.text.trim()
+      final c = widget.existingConfig!;
+      c.name = name;
+      c.publicKey = !_isSlipstream ? publicKey : '';
+      c.tunnelDomain = domain;
+      c.tunnelType = selectedTunnelType;
+      c.transportType = selectedTransportType;
+      c.sshUsername = _isSsh ? sshUsernameController.text.trim() : null;
+      c.sshPassword = _isSsh ? sshPasswordController.text : null;
+      c.sshPort = _isSsh ? sshPort : null;
+      c.sshHost = _isSsh && sshHostController.text.trim().isNotEmpty
+          ? sshHostController.text.trim()
           : null;
-      widget.existingConfig!.sshPassword = selectedTunnelType == TunnelType.ssh
-          ? sshPasswordController.text
-          : null;
-      widget.existingConfig!.congestionControl = selectedTransportType == TransportType.slipstream
-          ? selectedCongestionControl
-          : null;
-      widget.existingConfig!.keepAliveInterval = selectedTransportType == TransportType.slipstream
-          ? keepAliveInterval
-          : null;
-      widget.existingConfig!.gsoEnabled = selectedTransportType == TransportType.slipstream
-          ? gsoEnabled
-          : null;
-      state.updateDnsttConfig(widget.existingConfig!);
+      c.socksUsername = socksUsername;
+      c.socksPassword = socksPassword;
+      c.congestionControl = _isSlipstream ? selectedCongestionControl : null;
+      c.keepAliveInterval =
+          _isSlipstream ? (keepAlive != null && keepAlive > 0 ? keepAlive : 400) : null;
+      c.gsoEnabled = _isSlipstream ? gsoEnabled : null;
+      state.updateDnsttConfig(c);
     }
 
     Navigator.pop(context);

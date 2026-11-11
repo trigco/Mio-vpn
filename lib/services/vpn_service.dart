@@ -79,6 +79,14 @@ class VpnService {
       try {
         _stateChannel.receiveBroadcastStream().listen(
           (state) {
+            // SSH failures arrive as "ssh_tunnel_error|<stage>|<message>"
+            // so the UI can show the real native reason.
+            if (state is String && state.startsWith('ssh_tunnel_error')) {
+              final parts = state.split('|');
+              if (parts.length >= 3) {
+                _lastError = '${parts[1]}: ${parts.sublist(2).join('|')}';
+              }
+            }
             _currentState = _parseState(state);
             _stateController.add(_currentState);
           },
@@ -98,6 +106,9 @@ class VpnService {
   bool get isSshTunnelMode => _isSshTunnelMode;
 
   VpnState _parseState(dynamic state) {
+    if (state is String && state.startsWith('ssh_tunnel_error')) {
+      return VpnState.error;
+    }
     switch (state) {
       case 'disconnected':
       case 'proxy_disconnected':
@@ -153,6 +164,8 @@ class VpnService {
     String? dnsServer,
     String? tunnelDomain,
     String? publicKey,
+    String? socksUsername,
+    String? socksPassword,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -194,6 +207,8 @@ class VpnService {
               'dnsServer': dnsServer ?? '8.8.8.8',
               'tunnelDomain': tunnelDomain ?? '',
               'publicKey': publicKey ?? '',
+              'socksUsername': socksUsername,
+              'socksPassword': socksPassword,
             };
 
       final result = await _channel.invokeMethod<bool>('connect', params);
@@ -493,6 +508,8 @@ class VpnService {
     String congestionControl = 'dcubic',
     int keepAliveInterval = 400,
     bool gso = false,
+    String? socksUsername,
+    String? socksPassword,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -529,6 +546,8 @@ class VpnService {
         'congestionControl': congestionControl,
         'keepAliveInterval': keepAliveInterval,
         'gso': gso,
+        'socksUsername': socksUsername,
+        'socksPassword': socksPassword,
       });
 
       if (result == true) {
@@ -707,6 +726,8 @@ class VpnService {
     required String publicKey,
     required String sshUsername,
     String? sshPassword,
+    String? sshHost,
+    int? sshPort,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -764,10 +785,11 @@ class VpnService {
       // Step 2: Start SSH with dynamic port forwarding on configured proxy port
       final bindAddress = '$proxyPort';
 
-      // DNSTT creates a SOCKS5 proxy on port 7001, so SSH must use ProxyCommand
-      // to connect through the SOCKS5 proxy to the SSH server (via tunnel)
-      // The SSH server address should be the actual server hostname/IP that the DNSTT server forwards to
-      // Since DNSTT tunnel forwards to the same server running SSH, we connect to localhost:22 through the proxy
+      // DNSTT's local listener is a transparent byte pipe (it speaks no
+      // SOCKS); dnstt-server forwards every stream to the upstream its
+      // operator configured, normally the SSH daemon. The config's target
+      // (sshHost/sshPort) is therefore informational only in DNSTT mode,
+      // the same way DarkTunnel/HTTP Custom treat it.
       final proxyCommand = 'nc -X 5 -x 127.0.0.1:7001 %h %p';
       print('Starting SSH tunnel: ssh -D $bindAddress -o ProxyCommand="$proxyCommand" $sshUsername@localhost');
 
@@ -1048,6 +1070,8 @@ class VpnService {
     required String sshUsername,
     String? sshPassword,
     String? sshPrivateKey,
+    String? sshHost,
+    int? sshPort,
   }) async {
     if (_isDesktop) {
       return _connectSshTunnelDesktop(
@@ -1056,6 +1080,8 @@ class VpnService {
         publicKey: publicKey ?? '',
         sshUsername: sshUsername,
         sshPassword: sshPassword,
+        sshHost: sshHost,
+        sshPort: sshPort,
       );
     }
 
@@ -1084,11 +1110,16 @@ class VpnService {
         'sshUsername': sshUsername,
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
+        'sshHost': sshHost,
+        'sshPort': sshPort,
       });
 
       if (result == true) {
         _currentState = VpnState.connected;
       } else {
+        // The native side reports the failure reason on the state
+        // channel; give it a moment to land before the UI reads it.
+        await Future.delayed(const Duration(milliseconds: 300));
         _currentState = VpnState.error;
         _isSshTunnelMode = false;
       }
@@ -1119,6 +1150,8 @@ class VpnService {
     required String sshUsername,
     String? sshPassword,
     String? sshPrivateKey,
+    String? sshHost,
+    int? sshPort,
   }) async {
     if (_isDesktop) {
       // Desktop doesn't have VPN mode, use regular SSH tunnel
@@ -1129,6 +1162,8 @@ class VpnService {
         sshUsername: sshUsername,
         sshPassword: sshPassword,
         sshPrivateKey: sshPrivateKey,
+        sshHost: sshHost,
+        sshPort: sshPort,
       );
     }
 
@@ -1157,11 +1192,16 @@ class VpnService {
         'sshUsername': sshUsername,
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
+        'sshHost': sshHost,
+        'sshPort': sshPort,
       });
 
       if (result == true) {
         _currentState = VpnState.connected;
       } else {
+        // The native side reports the failure reason on the state
+        // channel; give it a moment to land before the UI reads it.
+        await Future.delayed(const Duration(milliseconds: 300));
         _currentState = VpnState.error;
         _isSshTunnelMode = false;
       }

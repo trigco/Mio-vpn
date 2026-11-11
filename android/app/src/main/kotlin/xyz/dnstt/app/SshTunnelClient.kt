@@ -17,10 +17,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * SSH Tunnel Client that creates a local SOCKS5 proxy through SSH dynamic port forwarding.
  *
  * Flow:
- * 1. DNSTT creates TCP tunnel to SSH server (127.0.0.1:7000 -> SSH server port 22)
- * 2. This SSH client connects to 127.0.0.1:7000 (which is the SSH server through DNSTT)
+ * 1. DNSTT client listens on 127.0.0.1:7001 as a transparent byte pipe;
+ *    dnstt-server forwards every stream to its configured upstream (sshd)
+ * 2. This SSH client connects raw to 127.0.0.1:7001 (the SSH server through DNSTT)
  * 3. Sets up SSH dynamic port forwarding (-D equivalent)
- * 4. Creates local SOCKS5 proxy on specified port (e.g., 1080)
+ * 4. Creates local SOCKS5 proxy on port 1080
  * 5. User apps connect to 127.0.0.1:1080 for proxied internet access
  */
 class SshTunnelClient {
@@ -58,7 +59,9 @@ class SshTunnelClient {
         username: String,
         password: String? = null,
         privateKey: String? = null,
-        shareProxy: Boolean = false
+        shareProxy: Boolean = false,
+        sshHost: String? = null,
+        sshPort: Int = 22
     ): Boolean = withContext(Dispatchers.IO) {
         shareProxyEnabled = shareProxy
         try {
@@ -82,8 +85,20 @@ class SshTunnelClient {
                 }
             }
 
-            // Create session connecting THROUGH the DNSTT tunnel
-            // The DNSTT tunnel (127.0.0.1:7000) forwards to the SSH server
+            // Create the SSH session to the local DNSTT tunnel endpoint.
+            // DNSTT is a transparent byte pipe: it carries no destination.
+            // Every stream is forwarded by dnstt-server to the single
+            // upstream address the server operator configured (normally
+            // the SSH daemon), so the session always targets
+            // 127.0.0.1:DNSTT_TUNNEL_PORT and the SSH handshake runs
+            // end-to-end through the pipe. The config's sshHost/sshPort
+            // (provider "target") are informational only — exactly like
+            // DarkTunnel/HTTP Custom, which drop host:port in DNSTT mode.
+            // Speaking SOCKS5 into the pipe would corrupt the SSH
+            // handshake at the server end.
+            if (!sshHost.isNullOrEmpty()) {
+                Log.i(TAG, "Config SSH target $sshHost:$sshPort (routed by dnstt-server upstream)")
+            }
             session = jsch.getSession(username, DNSTT_TUNNEL_HOST, DNSTT_TUNNEL_PORT).apply {
                 // Set password if provided
                 if (!password.isNullOrEmpty()) {
