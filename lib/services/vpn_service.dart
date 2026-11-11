@@ -79,6 +79,14 @@ class VpnService {
       try {
         _stateChannel.receiveBroadcastStream().listen(
           (state) {
+            // SSH failures arrive as "ssh_tunnel_error|<stage>|<message>"
+            // so the UI can show the real native reason.
+            if (state is String && state.startsWith('ssh_tunnel_error')) {
+              final parts = state.split('|');
+              if (parts.length >= 3) {
+                _lastError = '${parts[1]}: ${parts.sublist(2).join('|')}';
+              }
+            }
             _currentState = _parseState(state);
             _stateController.add(_currentState);
           },
@@ -98,6 +106,9 @@ class VpnService {
   bool get isSshTunnelMode => _isSshTunnelMode;
 
   VpnState _parseState(dynamic state) {
+    if (state is String && state.startsWith('ssh_tunnel_error')) {
+      return VpnState.error;
+    }
     switch (state) {
       case 'disconnected':
       case 'proxy_disconnected':
@@ -1106,6 +1117,9 @@ class VpnService {
       if (result == true) {
         _currentState = VpnState.connected;
       } else {
+        // The native side reports the failure reason on the state
+        // channel; give it a moment to land before the UI reads it.
+        await Future.delayed(const Duration(milliseconds: 300));
         _currentState = VpnState.error;
         _isSshTunnelMode = false;
       }
@@ -1185,6 +1199,9 @@ class VpnService {
       if (result == true) {
         _currentState = VpnState.connected;
       } else {
+        // The native side reports the failure reason on the state
+        // channel; give it a moment to land before the UI reads it.
+        await Future.delayed(const Duration(milliseconds: 300));
         _currentState = VpnState.error;
         _isSshTunnelMode = false;
       }

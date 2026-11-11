@@ -704,6 +704,14 @@ class MainActivity : FlutterActivity() {
     }
 
     // SSH tunnel mode methods
+    // Report an SSH tunnel failure with its stage and the real native
+    // message, so the UI can show WHY it failed instead of a generic error.
+    private fun reportSshError(stage: String, message: String?) {
+        val msg = (message ?: "unknown error").replace("|", "/").take(300)
+        Log.e("DnsttSsh", "SSH tunnel failed [$stage]: $msg")
+        runOnUiThread { eventSink?.success("ssh_tunnel_error|$stage|$msg") }
+    }
+
     // Flow: DNSTT tunnel (port 7001 internal) -> SSH client -> SSH dynamic port forwarding -> local SOCKS5 proxy (port 1080)
     private fun connectSshTunnel(
         dnsServer: String,
@@ -728,7 +736,7 @@ class MainActivity : FlutterActivity() {
             try {
                 // Step 1: Start DNSTT proxy on internal port 7001 (creates tunnel to SSH server)
                 val listenAddr = "127.0.0.1:7001"
-                sshDnsttClient = Mobile.newClient(dnsServer, tunnelDomain, publicKey, listenAddr)
+                sshDnsttClient = Mobile.newClient(dnsServer.trim(), tunnelDomain.trim(), publicKey.trim(), listenAddr)
                 sshDnsttClient?.start()
                 Log.d("DnsttSsh", "DNSTT tunnel started on $listenAddr")
 
@@ -763,8 +771,8 @@ class MainActivity : FlutterActivity() {
                     sshDnsttClient = null
                     sshTunnelClient = null
 
+                    reportSshError("SSH", error)
                     runOnUiThread {
-                        eventSink?.success("ssh_tunnel_error")
                         result.success(false)
                     }
                 }
@@ -780,8 +788,8 @@ class MainActivity : FlutterActivity() {
                 sshTunnelClient = null
                 isSshTunnelRunning.set(false)
 
+                reportSshError("DNSTT", e.message)
                 runOnUiThread {
-                    eventSink?.success("ssh_tunnel_error")
                     result.success(false)
                 }
             }
@@ -890,7 +898,7 @@ class MainActivity : FlutterActivity() {
             try {
                 // Step 1: Start DNSTT proxy on internal port 7001
                 val listenAddr = "127.0.0.1:7001"
-                sshDnsttClient = Mobile.newClient(dnsServer, tunnelDomain, publicKey, listenAddr)
+                sshDnsttClient = Mobile.newClient(dnsServer.trim(), tunnelDomain.trim(), publicKey.trim(), listenAddr)
                 sshDnsttClient?.start()
                 Log.d("DnsttSsh", "DNSTT tunnel started on $listenAddr")
 
@@ -923,8 +931,8 @@ class MainActivity : FlutterActivity() {
                     sshDnsttClient = null
                     sshTunnelClient = null
 
+                    reportSshError("SSH", error)
                     runOnUiThread {
-                        eventSink?.success("ssh_tunnel_error")
                         result.success(false)
                     }
                 }
@@ -937,8 +945,8 @@ class MainActivity : FlutterActivity() {
                 sshTunnelClient = null
                 isSshTunnelRunning.set(false)
 
+                reportSshError("DNSTT", e.message)
                 runOnUiThread {
-                    eventSink?.success("ssh_tunnel_error")
                     result.success(false)
                 }
             }
@@ -1125,7 +1133,7 @@ class MainActivity : FlutterActivity() {
                 }
 
                 // Create temporary client
-                dnsttClient = Mobile.newClient(dnsServer, tunnelDomain, publicKey, listenAddr)
+                dnsttClient = Mobile.newClient(dnsServer.trim(), tunnelDomain.trim(), publicKey.trim(), listenAddr)
                 Log.d("DnsttTest", "Client created")
 
                 // Update context with client

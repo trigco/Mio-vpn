@@ -143,7 +143,7 @@ class DnsttVpnService : VpnService() {
 
             // Create the Go dnstt client
             val listenAddr = "$proxyHost:$proxyPort"
-            dnsttClient = Mobile.newClient(dnsServer, tunnelDomain, publicKey, listenAddr)
+            dnsttClient = Mobile.newClient(dnsServer.trim(), tunnelDomain.trim(), publicKey.trim(), listenAddr)
 
             // Start the client (this may block while establishing connection)
             dnsttClient?.start()
