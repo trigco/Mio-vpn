@@ -774,11 +774,11 @@ class VpnService {
       // Step 2: Start SSH with dynamic port forwarding on configured proxy port
       final bindAddress = '$proxyPort';
 
-      // DNSTT creates a SOCKS5 proxy on port 7001, so SSH must use ProxyCommand
-      // to connect through the SOCKS5 proxy to the SSH server (via tunnel)
-      // The SSH server address is the config's target (host:port) reached
-      // through the tunnel's SOCKS proxy; falls back to localhost:22 for
-      // servers that forward every stream straight to their SSH daemon.
+      // DNSTT's local listener is a transparent byte pipe (it speaks no
+      // SOCKS); dnstt-server forwards every stream to the upstream its
+      // operator configured, normally the SSH daemon. The config's target
+      // (sshHost/sshPort) is therefore informational only in DNSTT mode,
+      // the same way DarkTunnel/HTTP Custom treat it.
       final proxyCommand = 'nc -X 5 -x 127.0.0.1:7001 %h %p';
       print('Starting SSH tunnel: ssh -D $bindAddress -o ProxyCommand="$proxyCommand" $sshUsername@localhost');
 
@@ -796,7 +796,7 @@ class VpnService {
             '-o', 'ServerAliveInterval=15',
             '-o', 'ServerAliveCountMax=3',
             '-N',
-            '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
+            '$sshUsername@localhost',
           ]);
         } else {
           // No sshpass, use expect-style approach with stdin
@@ -810,7 +810,7 @@ class VpnService {
             '-o', 'PreferredAuthentications=password',
             '-o', 'PubkeyAuthentication=no',
             '-N',
-            '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
+            '$sshUsername@localhost',
           ]);
 
           // Listen for password prompt and send password
@@ -836,7 +836,7 @@ class VpnService {
           '-o', 'ServerAliveInterval=15',
           '-o', 'ServerAliveCountMax=3',
           '-N',
-          '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
+          '$sshUsername@localhost',
         ]);
       }
 
