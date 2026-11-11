@@ -833,6 +833,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
   late TextEditingController sshUsernameController;
   late TextEditingController sshPasswordController;
   late TextEditingController sshPortController;
+  late TextEditingController sshHostController;
   late TextEditingController socksUsernameController;
   late TextEditingController socksPasswordController;
   late TextEditingController keepAliveController;
@@ -858,6 +859,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     sshPasswordController = TextEditingController(text: c?.sshPassword ?? '');
     sshPortController =
         TextEditingController(text: c?.sshPort?.toString() ?? '');
+    sshHostController = TextEditingController(text: c?.sshHost ?? '');
     socksUsernameController =
         TextEditingController(text: c?.socksUsername ?? '');
     socksPasswordController =
@@ -878,6 +880,7 @@ class _ConfigDialogState extends State<_ConfigDialog> {
     sshUsernameController.dispose();
     sshPasswordController.dispose();
     sshPortController.dispose();
+    sshHostController.dispose();
     socksUsernameController.dispose();
     socksPasswordController.dispose();
     keepAliveController.dispose();
@@ -988,6 +991,17 @@ class _ConfigDialogState extends State<_ConfigDialog> {
             if (_isSsh) ...[
               const SizedBox(height: 20),
               _sectionLabel('SSH Settings', bold: true),
+              TextField(
+                controller: sshHostController,
+                decoration: const InputDecoration(
+                  labelText: 'SSH Host (target)',
+                  hintText: 'e.g., 13.212.225.4',
+                  helperText: 'Server reached through the tunnel',
+                ),
+                autocorrect: false,
+                enableSuggestions: false,
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: sshUsernameController,
                 decoration: const InputDecoration(
@@ -1223,6 +1237,9 @@ class _ConfigDialogState extends State<_ConfigDialog> {
         sshUsername: _isSsh ? sshUsernameController.text.trim() : null,
         sshPassword: _isSsh ? sshPasswordController.text : null,
         sshPort: _isSsh ? sshPort : null,
+        sshHost: _isSsh && sshHostController.text.trim().isNotEmpty
+            ? sshHostController.text.trim()
+            : null,
         socksUsername: socksUsername,
         socksPassword: socksPassword,
         congestionControl: _isSlipstream ? selectedCongestionControl : null,
@@ -1240,6 +1257,9 @@ class _ConfigDialogState extends State<_ConfigDialog> {
       c.sshUsername = _isSsh ? sshUsernameController.text.trim() : null;
       c.sshPassword = _isSsh ? sshPasswordController.text : null;
       c.sshPort = _isSsh ? sshPort : null;
+      c.sshHost = _isSsh && sshHostController.text.trim().isNotEmpty
+          ? sshHostController.text.trim()
+          : null;
       c.socksUsername = socksUsername;
       c.socksPassword = socksPassword;
       c.congestionControl = _isSlipstream ? selectedCongestionControl : null;

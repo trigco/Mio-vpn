@@ -715,6 +715,8 @@ class VpnService {
     required String publicKey,
     required String sshUsername,
     String? sshPassword,
+    String? sshHost,
+    int? sshPort,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -774,8 +776,9 @@ class VpnService {
 
       // DNSTT creates a SOCKS5 proxy on port 7001, so SSH must use ProxyCommand
       // to connect through the SOCKS5 proxy to the SSH server (via tunnel)
-      // The SSH server address should be the actual server hostname/IP that the DNSTT server forwards to
-      // Since DNSTT tunnel forwards to the same server running SSH, we connect to localhost:22 through the proxy
+      // The SSH server address is the config's target (host:port) reached
+      // through the tunnel's SOCKS proxy; falls back to localhost:22 for
+      // servers that forward every stream straight to their SSH daemon.
       final proxyCommand = 'nc -X 5 -x 127.0.0.1:7001 %h %p';
       print('Starting SSH tunnel: ssh -D $bindAddress -o ProxyCommand="$proxyCommand" $sshUsername@localhost');
 
@@ -793,7 +796,7 @@ class VpnService {
             '-o', 'ServerAliveInterval=15',
             '-o', 'ServerAliveCountMax=3',
             '-N',
-            '$sshUsername@localhost',
+            '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
           ]);
         } else {
           // No sshpass, use expect-style approach with stdin
@@ -807,7 +810,7 @@ class VpnService {
             '-o', 'PreferredAuthentications=password',
             '-o', 'PubkeyAuthentication=no',
             '-N',
-            '$sshUsername@localhost',
+            '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
           ]);
 
           // Listen for password prompt and send password
@@ -833,7 +836,7 @@ class VpnService {
           '-o', 'ServerAliveInterval=15',
           '-o', 'ServerAliveCountMax=3',
           '-N',
-          '$sshUsername@localhost',
+          '-p', '${sshPort ?? 22}', '$sshUsername@${sshHost ?? 'localhost'}',
         ]);
       }
 
@@ -1056,6 +1059,8 @@ class VpnService {
     required String sshUsername,
     String? sshPassword,
     String? sshPrivateKey,
+    String? sshHost,
+    int? sshPort,
   }) async {
     if (_isDesktop) {
       return _connectSshTunnelDesktop(
@@ -1064,6 +1069,8 @@ class VpnService {
         publicKey: publicKey ?? '',
         sshUsername: sshUsername,
         sshPassword: sshPassword,
+        sshHost: sshHost,
+        sshPort: sshPort,
       );
     }
 
@@ -1092,6 +1099,8 @@ class VpnService {
         'sshUsername': sshUsername,
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
+        'sshHost': sshHost,
+        'sshPort': sshPort,
       });
 
       if (result == true) {
@@ -1127,6 +1136,8 @@ class VpnService {
     required String sshUsername,
     String? sshPassword,
     String? sshPrivateKey,
+    String? sshHost,
+    int? sshPort,
   }) async {
     if (_isDesktop) {
       // Desktop doesn't have VPN mode, use regular SSH tunnel
@@ -1137,6 +1148,8 @@ class VpnService {
         sshUsername: sshUsername,
         sshPassword: sshPassword,
         sshPrivateKey: sshPrivateKey,
+        sshHost: sshHost,
+        sshPort: sshPort,
       );
     }
 
@@ -1165,6 +1178,8 @@ class VpnService {
         'sshUsername': sshUsername,
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
+        'sshHost': sshHost,
+        'sshPort': sshPort,
       });
 
       if (result == true) {
