@@ -153,6 +153,8 @@ class VpnService {
     String? dnsServer,
     String? tunnelDomain,
     String? publicKey,
+    String? socksUsername,
+    String? socksPassword,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -194,6 +196,8 @@ class VpnService {
               'dnsServer': dnsServer ?? '8.8.8.8',
               'tunnelDomain': tunnelDomain ?? '',
               'publicKey': publicKey ?? '',
+              'socksUsername': socksUsername,
+              'socksPassword': socksPassword,
             };
 
       final result = await _channel.invokeMethod<bool>('connect', params);
@@ -493,6 +497,8 @@ class VpnService {
     String congestionControl = 'dcubic',
     int keepAliveInterval = 400,
     bool gso = false,
+    String? socksUsername,
+    String? socksPassword,
   }) async {
     _currentState = VpnState.connecting;
     _stateController.add(_currentState);
@@ -529,6 +535,8 @@ class VpnService {
         'congestionControl': congestionControl,
         'keepAliveInterval': keepAliveInterval,
         'gso': gso,
+        'socksUsername': socksUsername,
+        'socksPassword': socksPassword,
       });
 
       if (result == true) {
