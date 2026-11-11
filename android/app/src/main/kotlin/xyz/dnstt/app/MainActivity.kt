@@ -43,6 +43,8 @@ class MainActivity : FlutterActivity() {
 
     private var pendingResult: MethodChannel.Result? = null
     private var pendingProxyHost: String? = null
+    private var pendingSocksUsername: String? = null
+    private var pendingSocksPassword: String? = null
     private var pendingProxyPort: Int? = null
     private var pendingDnsServer: String? = null
     private var pendingTunnelDomain: String? = null
@@ -90,7 +92,9 @@ class MainActivity : FlutterActivity() {
                     val dnsServer = call.argument<String>("dnsServer") ?: "8.8.8.8"
                     val tunnelDomain = call.argument<String>("tunnelDomain") ?: ""
                     val publicKey = call.argument<String>("publicKey") ?: ""
-                    connectVpn(proxyHost, proxyPort, dnsServer, tunnelDomain, publicKey, result)
+                    val socksUsername = call.argument<String>("socksUsername")
+                    val socksPassword = call.argument<String>("socksPassword")
+                    connectVpn(proxyHost, proxyPort, dnsServer, tunnelDomain, publicKey, socksUsername, socksPassword, result)
                 }
                 "disconnect" -> disconnectVpn(result)
                 "isConnected" -> result.success(DnsttVpnService.isRunning.get())
@@ -182,7 +186,9 @@ class MainActivity : FlutterActivity() {
                     val congestionControl = call.argument<String>("congestionControl") ?: "dcubic"
                     val keepAliveInterval = call.argument<Int>("keepAliveInterval") ?: 400
                     val gso = call.argument<Boolean>("gso") ?: false
-                    connectSlipstreamVpn(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso, result)
+                    val socksUsername = call.argument<String>("socksUsername")
+                    val socksPassword = call.argument<String>("socksPassword")
+                    connectSlipstreamVpn(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso, socksUsername, socksPassword, result)
                 }
                 "connectSlipstreamProxy" -> {
                     val dnsServer = call.argument<String>("dnsServer") ?: "8.8.8.8"
@@ -275,6 +281,8 @@ class MainActivity : FlutterActivity() {
         dnsServer: String,
         tunnelDomain: String,
         publicKey: String,
+        socksUsername: String?,
+        socksPassword: String?,
         result: MethodChannel.Result
     ) {
         pendingTunnelDomain = tunnelDomain
@@ -287,12 +295,14 @@ class MainActivity : FlutterActivity() {
             pendingProxyHost = proxyHost
             pendingProxyPort = proxyPort
             pendingDnsServer = dnsServer
+            pendingSocksUsername = socksUsername
+            pendingSocksPassword = socksPassword
             startActivityForResult(intent, VPN_REQUEST_CODE)
             return
         }
 
         // Start VPN service
-        startVpnService(proxyHost, proxyPort, dnsServer, tunnelDomain, publicKey)
+        startVpnService(proxyHost, proxyPort, dnsServer, tunnelDomain, publicKey, socksUsername, socksPassword)
         result.success(true)
     }
 
@@ -317,7 +327,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun startVpnService(proxyHost: String, proxyPort: Int, dnsServer: String, tunnelDomain: String, publicKey: String) {
+    private fun startVpnService(proxyHost: String, proxyPort: Int, dnsServer: String, tunnelDomain: String, publicKey: String, socksUsername: String? = null, socksPassword: String? = null) {
         // Stop any proxy services first
         stopAllProxyServices()
 
@@ -328,6 +338,8 @@ class MainActivity : FlutterActivity() {
             putExtra(DnsttVpnService.EXTRA_DNS_SERVER, dnsServer)
             putExtra(DnsttVpnService.EXTRA_TUNNEL_DOMAIN, tunnelDomain)
             putExtra(DnsttVpnService.EXTRA_PUBLIC_KEY, publicKey)
+            putExtra(DnsttVpnService.EXTRA_SOCKS_USERNAME, socksUsername)
+            putExtra(DnsttVpnService.EXTRA_SOCKS_PASSWORD, socksPassword)
         }
         startForegroundService(serviceIntent)
     }
@@ -468,17 +480,19 @@ class MainActivity : FlutterActivity() {
         congestionControl: String,
         keepAliveInterval: Int,
         gso: Boolean,
+        socksUsername: String?,
+        socksPassword: String?,
         result: MethodChannel.Result
     ) {
         val intent = VpnService.prepare(this)
         if (intent != null) {
             pendingResult = result
-            pendingSlipstreamVpnParams = SlipstreamVpnParams(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso)
+            pendingSlipstreamVpnParams = SlipstreamVpnParams(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso, socksUsername, socksPassword)
             startActivityForResult(intent, VPN_REQUEST_CODE)
             return
         }
 
-        startSlipstreamVpnService(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso)
+        startSlipstreamVpnService(dnsServer, tunnelDomain, congestionControl, keepAliveInterval, gso, socksUsername, socksPassword)
         result.success(true)
     }
 
@@ -487,7 +501,9 @@ class MainActivity : FlutterActivity() {
         val tunnelDomain: String,
         val congestionControl: String,
         val keepAliveInterval: Int,
-        val gso: Boolean
+        val gso: Boolean,
+        val socksUsername: String? = null,
+        val socksPassword: String? = null
     )
 
     private var pendingSlipstreamVpnParams: SlipstreamVpnParams? = null
@@ -497,7 +513,9 @@ class MainActivity : FlutterActivity() {
         tunnelDomain: String,
         congestionControl: String,
         keepAliveInterval: Int,
-        gso: Boolean
+        gso: Boolean,
+        socksUsername: String? = null,
+        socksPassword: String? = null
     ) {
         // Stop any proxy services first
         stopAllProxyServices()
@@ -513,6 +531,8 @@ class MainActivity : FlutterActivity() {
             putExtra(DnsttVpnService.EXTRA_CONGESTION_CONTROL, congestionControl)
             putExtra(DnsttVpnService.EXTRA_KEEP_ALIVE_INTERVAL, keepAliveInterval)
             putExtra(DnsttVpnService.EXTRA_GSO, gso)
+            putExtra(DnsttVpnService.EXTRA_SOCKS_USERNAME, socksUsername)
+            putExtra(DnsttVpnService.EXTRA_SOCKS_PASSWORD, socksPassword)
         }
         startForegroundService(serviceIntent)
     }
@@ -937,7 +957,9 @@ class MainActivity : FlutterActivity() {
                         params.tunnelDomain,
                         params.congestionControl,
                         params.keepAliveInterval,
-                        params.gso
+                        params.gso,
+                        params.socksUsername,
+                        params.socksPassword
                     )
                     pendingResult?.success(true)
                 } else if (pendingSshVpnParams != null) {
@@ -960,8 +982,12 @@ class MainActivity : FlutterActivity() {
                         pendingProxyPort!!,
                         pendingDnsServer ?: "8.8.8.8",
                         pendingTunnelDomain ?: "",
-                        pendingPublicKey ?: ""
+                        pendingPublicKey ?: "",
+                        pendingSocksUsername,
+                        pendingSocksPassword
                     )
+                    pendingSocksUsername = null
+                    pendingSocksPassword = null
                     pendingResult?.success(true)
                 } else {
                     // Just requesting permission

@@ -7,6 +7,7 @@ import 'package:hugeicons/hugeicons.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/app_state.dart';
+import '../services/server_location_service.dart';
 import '../services/vpn_service.dart';
 import '../models/dnstt_config.dart';
 import '../widgets/app_icons.dart';
@@ -44,6 +45,21 @@ class _HomeScreenState extends State<HomeScreen>
   int? _latencyMs;
   final List<int> _latencyHistory = [];
   final math.Random _random = math.Random();
+  ({double lat, double lon})? _serverLocation;
+  String? _serverLocationDomain;
+
+  /// Resolves the active config's server location for the hero map.
+  void _resolveServerLocation(String? domain) {
+    if (domain == null || domain.isEmpty || domain == _serverLocationDomain) {
+      return;
+    }
+    _serverLocationDomain = domain;
+    ServerLocationService.locate(domain).then((loc) {
+      if (mounted && loc != null && _serverLocationDomain == domain) {
+        setState(() => _serverLocation = loc);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -72,6 +88,10 @@ class _HomeScreenState extends State<HomeScreen>
           break;
         case VpnState.connected:
           appState.setConnectionStatus(ConnectionStatus.connected);
+          // Probe right away so the graph has data immediately.
+          Future.delayed(const Duration(milliseconds: 600), () {
+            if (mounted) _measureLatency(appState);
+          });
           break;
         case VpnState.disconnected:
         case VpnState.disconnecting:
@@ -100,9 +120,11 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Auto Connect preference.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_autoConnectTried || !mounted) return;
-      _autoConnectTried = true;
+      if (!mounted) return;
       final s = Provider.of<AppState>(context, listen: false);
+      _resolveServerLocation(s.activeConfig?.tunnelDomain);
+      if (_autoConnectTried) return;
+      _autoConnectTried = true;
       if (s.autoConnect &&
           s.connectionStatus == ConnectionStatus.disconnected &&
           s.activeConfig != null &&
@@ -126,39 +148,120 @@ class _HomeScreenState extends State<HomeScreen>
     final dnsAddress = state.activeDns?.address;
     if (dnsAddress == null || _measuring) return;
     _measuring = true;
-    RawDatagramSocket? socket;
     try {
-      final target = InternetAddress(dnsAddress);
-      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final ms = await _probeDnsViaSocks(state, dnsAddress)
+          .timeout(const Duration(seconds: 9), onTimeout: () => null);
+      if (ms != null && mounted) {
+        setState(() {
+          _latencyMs = ms;
+          _latencyHistory.add(ms);
+          if (_latencyHistory.length > 30) {
+            _latencyHistory.removeAt(0);
+          }
+        });
+      }
+    } finally {
+      _measuring = false;
+    }
+  }
+
+  /// Local SOCKS5 endpoint of the running tunnel, by mode:
+  /// SSH tunnels expose their proxy on 1080, Slipstream's VPN bridge
+  /// listens on 7000, everything else uses the configured proxy port.
+  int _localSocksPort(AppState state) {
+    if (_vpnService.isSshTunnelMode) return 1080;
+    final cfg = state.activeConfig;
+    if ((cfg?.isSlipstream ?? false) && !_vpnService.isProxyMode) return 7000;
+    return state.proxyPort;
+  }
+
+  /// Measures the real tunnel latency: a DNS query sent over TCP through
+  /// the tunnel's local SOCKS5 proxy to the active DNS server. (A direct
+  /// UDP probe never returns once the VPN is up, which is why the old
+  /// graph stayed flat.)
+  Future<int?> _probeDnsViaSocks(AppState state, String dnsAddress) async {
+    final cfg = state.activeConfig;
+    Socket? socket;
+    _SocksReader? reader;
+    try {
+      final sw = Stopwatch()..start();
+      socket = await Socket.connect(
+        '127.0.0.1',
+        _localSocksPort(state),
+        timeout: const Duration(seconds: 5),
+      );
+      reader = _SocksReader(socket);
+
+      final user = cfg?.socksUsername ?? '';
+      final pass = cfg?.socksPassword ?? '';
+      final hasAuth = user.isNotEmpty && pass.isNotEmpty;
+
+      // SOCKS5 greeting.
+      socket.add(hasAuth ? [5, 2, 0, 2] : [5, 1, 0]);
+      final greeting = await reader.readExactly(2);
+      if (greeting[0] != 5) return null;
+      final method = greeting[1];
+      if (method == 2) {
+        if (!hasAuth) return null;
+        final ub = user.codeUnits;
+        final pb = pass.codeUnits;
+        socket.add([1, ub.length, ...ub, pb.length, ...pb]);
+        final authResp = await reader.readExactly(2);
+        if (authResp[1] != 0) return null;
+      } else if (method != 0) {
+        return null;
+      }
+
+      // CONNECT to the DNS server on port 53.
+      final request = <int>[5, 1, 0];
+      final ip = InternetAddress.tryParse(dnsAddress);
+      if (ip != null && ip.type == InternetAddressType.IPv4) {
+        request.add(1);
+        request.addAll(ip.rawAddress);
+      } else {
+        final host = dnsAddress.codeUnits;
+        request.add(3);
+        request.add(host.length);
+        request.addAll(host);
+      }
+      request.addAll([0, 53]);
+      socket.add(request);
+      final head = await reader.readExactly(4);
+      if (head[0] != 5 || head[1] != 0) return null;
+      switch (head[3]) {
+        case 1:
+          await reader.readExactly(6);
+          break;
+        case 3:
+          final lenByte = await reader.readExactly(1);
+          await reader.readExactly(lenByte[0] + 2);
+          break;
+        case 4:
+          await reader.readExactly(18);
+          break;
+        default:
+          return null;
+      }
+
+      // DNS query over TCP (2-byte length prefix).
       final id = _random.nextInt(0xFFFF);
-      // Minimal DNS query: root NS lookup header + question.
       final query = <int>[
         id >> 8, id & 0xFF, 0x01, 0x00, 0x00, 0x01,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x01, 0x00, 0x01,
       ];
-      final sw = Stopwatch()..start();
-      socket.send(query, target, 53);
-      final event =
-          await socket.first.timeout(const Duration(seconds: 2));
-      if (event == RawSocketEvent.read) {
-        socket.receive();
-        sw.stop();
-        if (mounted) {
-          setState(() {
-            _latencyMs = sw.elapsedMilliseconds;
-            _latencyHistory.add(_latencyMs!);
-            if (_latencyHistory.length > 30) {
-              _latencyHistory.removeAt(0);
-            }
-          });
-        }
-      }
+      socket.add([query.length >> 8, query.length & 0xFF, ...query]);
+      final lenBuf = await reader.readExactly(2);
+      final respLen = (lenBuf[0] << 8) | lenBuf[1];
+      if (respLen <= 0 || respLen > 4096) return null;
+      await reader.readExactly(respLen);
+      sw.stop();
+      return sw.elapsedMilliseconds;
     } catch (_) {
-      // Network unreachable / timeout: keep last known latency.
+      return null;
     } finally {
-      socket?.close();
-      _measuring = false;
+      reader?.close();
+      socket?.destroy();
     }
   }
 
@@ -270,6 +373,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ---------- Hero: world map + blended power button ----------
   Widget _buildHero(BuildContext context, AppState state) {
+    // Keep the map's server pin in sync with the selected config
+    // (no-op when the domain hasn't changed; result is cached).
+    _resolveServerLocation(state.activeConfig?.tunnelDomain);
     final isConnected = state.connectionStatus == ConnectionStatus.connected;
     final isConnecting = state.connectionStatus == ConnectionStatus.connecting;
     final scheme = Theme.of(context).colorScheme;
@@ -292,6 +398,8 @@ class _HomeScreenState extends State<HomeScreen>
                 WorldMapView(
                   showRoute: isConnected || isConnecting,
                   accent: scheme.primary,
+                  serverLat: _serverLocation?.lat,
+                  serverLon: _serverLocation?.lon,
                 ),
                 Positioned(
                   left: 0,
@@ -1000,6 +1108,16 @@ class _HomeScreenState extends State<HomeScreen>
 
   // ---------- Connection actions (unchanged behaviour) ----------
   Future<void> _connect(BuildContext context, AppState state) async {
+    // Fresh latency graph for the new session; resolve the server's real
+    // location for the hero map while the network is still direct.
+    if (mounted) {
+      setState(() {
+        _latencyHistory.clear();
+        _latencyMs = null;
+      });
+    }
+    _resolveServerLocation(state.activeConfig?.tunnelDomain);
+
     if (state.useAutoDns) {
       await state.refreshAutoDns();
       if (state.activeDns == null) {
@@ -1114,6 +1232,8 @@ class _HomeScreenState extends State<HomeScreen>
         congestionControl: config.congestionControl ?? 'dcubic',
         keepAliveInterval: config.keepAliveInterval ?? 400,
         gso: config.gsoEnabled ?? false,
+        socksUsername: config.socksUsername,
+        socksPassword: config.socksPassword,
       );
     } else if (useProxyMode) {
       success = await _vpnService.connectProxy(
@@ -1129,6 +1249,8 @@ class _HomeScreenState extends State<HomeScreen>
         dnsServer: state.activeDns?.address ?? '8.8.8.8',
         tunnelDomain: state.activeConfig?.tunnelDomain,
         publicKey: state.activeConfig?.publicKey,
+        socksUsername: state.activeConfig?.socksUsername,
+        socksPassword: state.activeConfig?.socksPassword,
       );
     }
 
@@ -1233,6 +1355,52 @@ class _DashedCirclePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_DashedCirclePainter old) => old.color != color;
+}
+
+/// Buffered reader over a Socket for the SOCKS5 latency probe.
+class _SocksReader {
+  final List<int> _buf = [];
+  final List<Completer<void>> _waiters = [];
+  late final StreamSubscription<List<int>> _sub;
+
+  _SocksReader(Socket socket) {
+    _sub = socket.listen(
+      (data) {
+        _buf.addAll(data);
+        _notify();
+      },
+      onError: (_) => _notify(),
+      onDone: _notify,
+      cancelOnError: true,
+    );
+  }
+
+  void _notify() {
+    for (final w in _waiters) {
+      if (!w.isCompleted) w.complete();
+    }
+    _waiters.clear();
+  }
+
+  Future<List<int>> readExactly(int n) async {
+    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (_buf.length < n) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw TimeoutException('SOCKS probe read timeout');
+      }
+      final c = Completer<void>();
+      _waiters.add(c);
+      await c.future.timeout(
+        const Duration(milliseconds: 600),
+        onTimeout: () {},
+      );
+    }
+    final out = _buf.sublist(0, n);
+    _buf.removeRange(0, n);
+    return out;
+  }
+
+  void close() => _sub.cancel();
 }
 
 /// Mini latency history chart.
