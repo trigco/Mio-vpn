@@ -73,18 +73,46 @@ class ConfigImportExportService {
           tunnelType = TunnelType.ssh;
         }
 
+        // Provider SSH configs often carry a combined target string,
+        // e.g. "13.212.225.4:22@tunnel:secret" — split it into fields.
+        String? targetHost = item['sshHost']?.toString();
+        int? targetPort = item['sshPort'] is int
+            ? item['sshPort']
+            : int.tryParse(item['sshPort']?.toString() ?? '');
+        String? targetUser = item['sshUsername']?.toString();
+        String? targetPass = item['sshPassword']?.toString();
+        final target = item['target']?.toString();
+        if (target != null && target.isNotEmpty) {
+          final atParts = target.split('@');
+          final hp = atParts.first.trim().split(':');
+          if ((targetHost == null || targetHost.isEmpty) && hp.isNotEmpty) {
+            targetHost = hp.first.trim();
+          }
+          if (targetPort == null && hp.length > 1) {
+            targetPort = int.tryParse(hp[1].trim());
+          }
+          if (atParts.length > 1) {
+            final cred = atParts.sublist(1).join('@').split(':');
+            if ((targetUser == null || targetUser.isEmpty) && cred.isNotEmpty) {
+              targetUser = cred.first;
+            }
+            if (targetPass == null && cred.length > 1) {
+              targetPass = cred[1];
+            }
+          }
+        }
+
         final config = DnsttConfig(
           name: item['name']?.toString() ?? 'Unnamed Config',
           publicKey: item['publicKey']?.toString() ?? item['pubkey']?.toString() ?? '',
           tunnelDomain: item['tunnelDomain']?.toString() ?? item['domain']?.toString() ?? '',
           transportType: transportType,
           tunnelType: tunnelType,
-          sshUsername: item['sshUsername']?.toString(),
-          sshPassword: item['sshPassword']?.toString(),
+          sshUsername: targetUser,
+          sshPassword: targetPass,
           sshPrivateKey: item['sshPrivateKey']?.toString(),
-          sshPort: item['sshPort'] is int
-              ? item['sshPort']
-              : int.tryParse(item['sshPort']?.toString() ?? ''),
+          sshPort: targetPort,
+          sshHost: targetHost,
           socksUsername: item['socksUsername']?.toString(),
           socksPassword: item['socksPassword']?.toString(),
           congestionControl: item['congestionControl']?.toString(),
@@ -157,6 +185,7 @@ class ConfigImportExportService {
           if (c.sshUsername != null) configMap['sshUsername'] = c.sshUsername;
           if (c.sshPassword != null) configMap['sshPassword'] = c.sshPassword;
           if (c.sshPort != null) configMap['sshPort'] = c.sshPort;
+          if (c.sshHost != null) configMap['sshHost'] = c.sshHost;
         }
 
         // SOCKS authentication

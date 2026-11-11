@@ -41,10 +41,17 @@ class DnsttConfig {
   String? sshPrivateKey;
 
   /// SSH server port as given by the provider (default 22).
-  /// Note: with DNSTT/Slipstream tunnels the effective SSH port is the one
-  /// the tunnel server forwards to; this value is stored with the config
-  /// so provider configs keep their port information.
+  /// Together with [sshHost] this is the target the tunnel is asked to
+  /// reach (e.g. 13.212.225.4:22 in provider configs).
   int? sshPort;
+
+  /// SSH target host (IP or hostname) reached THROUGH the tunnel.
+  /// Provider SSH configs specify it separately from the tunnel domain
+  /// (e.g. tunnel domain ssh.example.com, target 13.212.225.4). When set,
+  /// the SSH client connects to this host:port via the tunnel's SOCKS
+  /// interface; when empty, the tunnel's raw stream is used (servers
+  /// that forward every stream straight to their SSH daemon).
+  String? sshHost;
 
   /// SOCKS5 username/password authentication (only used when
   /// tunnelType is socks5). Used by the VPN service's SOCKS5 client when
@@ -71,6 +78,7 @@ class DnsttConfig {
     this.sshPassword,
     this.sshPrivateKey,
     this.sshPort,
+    this.sshHost,
     this.socksUsername,
     this.socksPassword,
     this.congestionControl,
@@ -89,6 +97,7 @@ class DnsttConfig {
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
         'sshPort': sshPort,
+        'sshHost': sshHost,
         'socksUsername': socksUsername,
         'socksPassword': socksPassword,
         'congestionControl': congestionControl,
@@ -109,6 +118,7 @@ class DnsttConfig {
         sshPort: json['sshPort'] is int
             ? json['sshPort']
             : int.tryParse(json['sshPort']?.toString() ?? ''),
+        sshHost: json['sshHost'],
         socksUsername: json['socksUsername'],
         socksPassword: json['socksPassword'],
         congestionControl: json['congestionControl'],
@@ -178,6 +188,7 @@ class DnsttConfig {
     String? sshPassword,
     String? sshPrivateKey,
     int? sshPort,
+    String? sshHost,
     String? socksUsername,
     String? socksPassword,
     String? congestionControl,
@@ -195,6 +206,7 @@ class DnsttConfig {
       sshPassword: sshPassword ?? this.sshPassword,
       sshPrivateKey: sshPrivateKey ?? this.sshPrivateKey,
       sshPort: sshPort ?? this.sshPort,
+      sshHost: sshHost ?? this.sshHost,
       socksUsername: socksUsername ?? this.socksUsername,
       socksPassword: socksPassword ?? this.socksPassword,
       congestionControl: congestionControl ?? this.congestionControl,

@@ -2,6 +2,7 @@ package xyz.dnstt.app
 
 import android.util.Log
 import com.jcraft.jsch.JSch
+import com.jcraft.jsch.ProxySOCKS5
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.ChannelDirectTCPIP
 import kotlinx.coroutines.*
@@ -58,7 +59,9 @@ class SshTunnelClient {
         username: String,
         password: String? = null,
         privateKey: String? = null,
-        shareProxy: Boolean = false
+        shareProxy: Boolean = false,
+        sshHost: String? = null,
+        sshPort: Int = 22
     ): Boolean = withContext(Dispatchers.IO) {
         shareProxyEnabled = shareProxy
         try {
@@ -82,9 +85,21 @@ class SshTunnelClient {
                 }
             }
 
-            // Create session connecting THROUGH the DNSTT tunnel
-            // The DNSTT tunnel (127.0.0.1:7000) forwards to the SSH server
-            session = jsch.getSession(username, DNSTT_TUNNEL_HOST, DNSTT_TUNNEL_PORT).apply {
+            // Create the SSH session.
+            // If the config names a target (sshHost), the tunnel is asked
+            // via its SOCKS5 interface to reach that SSH server
+            // (provider-style target, e.g. 13.212.225.4:22). Without a
+            // target, connect to the tunnel endpoint directly — for
+            // servers that forward every stream to their SSH daemon.
+            val useTarget = !sshHost.isNullOrEmpty()
+            session = if (useTarget) {
+                Log.i(TAG, "SSH target via tunnel SOCKS: $sshHost:$sshPort")
+                jsch.getSession(username, sshHost, sshPort).apply {
+                    setProxy(ProxySOCKS5(DNSTT_TUNNEL_HOST, DNSTT_TUNNEL_PORT))
+                }
+            } else {
+                jsch.getSession(username, DNSTT_TUNNEL_HOST, DNSTT_TUNNEL_PORT)
+            }.apply {
                 // Set password if provided
                 if (!password.isNullOrEmpty()) {
                     setPassword(password)
