@@ -1203,6 +1203,8 @@ class _HomeScreenState extends State<HomeScreen>
         sshUsername: config.sshUsername!,
         sshPassword: config.sshPassword,
         sshPrivateKey: config.sshPrivateKey,
+        sshHost: config.sshHost,
+        sshPort: config.sshPort,
       );
     } else if (isSshTunnel && !useProxyMode) {
       final config = state.activeConfig!;
@@ -1213,6 +1215,8 @@ class _HomeScreenState extends State<HomeScreen>
         sshUsername: config.sshUsername!,
         sshPassword: config.sshPassword,
         sshPrivateKey: config.sshPrivateKey,
+        sshHost: config.sshHost,
+        sshPort: config.sshPort,
       );
     } else if (isSlipstream && useProxyMode) {
       final config = state.activeConfig!;
