@@ -82,6 +82,11 @@ class ConfigImportExportService {
           sshUsername: item['sshUsername']?.toString(),
           sshPassword: item['sshPassword']?.toString(),
           sshPrivateKey: item['sshPrivateKey']?.toString(),
+          sshPort: item['sshPort'] is int
+              ? item['sshPort']
+              : int.tryParse(item['sshPort']?.toString() ?? ''),
+          socksUsername: item['socksUsername']?.toString(),
+          socksPassword: item['socksPassword']?.toString(),
           congestionControl: item['congestionControl']?.toString(),
           keepAliveInterval: item['keepAliveInterval'] is int
               ? item['keepAliveInterval']
@@ -151,6 +156,13 @@ class ConfigImportExportService {
         if (c.tunnelType == TunnelType.ssh) {
           if (c.sshUsername != null) configMap['sshUsername'] = c.sshUsername;
           if (c.sshPassword != null) configMap['sshPassword'] = c.sshPassword;
+          if (c.sshPort != null) configMap['sshPort'] = c.sshPort;
+        }
+
+        // SOCKS authentication
+        if (c.tunnelType == TunnelType.socks5) {
+          if (c.socksUsername != null) configMap['socksUsername'] = c.socksUsername;
+          if (c.socksPassword != null) configMap['socksPassword'] = c.socksPassword;
         }
 
         return configMap;

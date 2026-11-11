@@ -64,14 +64,26 @@ const List<(Offset, Offset, Offset)> _netArcs = [
   (Offset(160, 50), Offset(205, 20), Offset(262, 30)),
 ];
 
-/// User location (Dhaka) and demo server location (Singapore) in map coords.
+/// User location (Dhaka) and fallback server location (Singapore) in
+/// map coords. The map space is a plain equirectangular projection:
+/// x = (lon + 180) * 320 / 360, y = (90 - lat) * 172 / 180
+/// (Dhaka 23.8N 90.4E -> 240,63 and Singapore 1.35N 103.8E -> 252,85).
 const Offset _homePin = Offset(240, 63);
 const Offset _serverPin = Offset(252, 85);
 
-Path _routePath() {
+Offset latLonToMap(double lat, double lon) =>
+    Offset((lon + 180) * 320 / 360, (90 - lat) * 172 / 180);
+
+Path _routePath(Offset serverPin) {
+  final mid = Offset(
+    (_homePin.dx + serverPin.dx) / 2,
+    (_homePin.dy + serverPin.dy) / 2,
+  );
+  final dist = (serverPin - _homePin).distance;
+  final control = Offset(mid.dx, mid.dy - 6 - dist * 0.22);
   final p = Path();
   p.moveTo(_homePin.dx, _homePin.dy);
-  p.quadraticBezierTo(264, 56, _serverPin.dx, _serverPin.dy);
+  p.quadraticBezierTo(control.dx, control.dy, serverPin.dx, serverPin.dy);
   return p;
 }
 
@@ -96,7 +108,18 @@ class WorldMapView extends StatefulWidget {
   final bool showRoute;
   final Color accent;
 
-  const WorldMapView({super.key, required this.showRoute, required this.accent});
+  /// Real server location (from the connected config's domain). When
+  /// null, the route falls back to the default Singapore pin.
+  final double? serverLat;
+  final double? serverLon;
+
+  const WorldMapView({
+    super.key,
+    required this.showRoute,
+    required this.accent,
+    this.serverLat,
+    this.serverLon,
+  });
 
   @override
   State<WorldMapView> createState() => _WorldMapViewState();
@@ -146,11 +169,15 @@ class _WorldMapViewState extends State<WorldMapView>
       animation: Listenable.merge([_focusCtrl, _pulseCtrl]),
       builder: (context, _) {
         final eased = Curves.easeInOutCubic.transform(_focusCtrl.value);
+        final serverPin = (widget.serverLat != null && widget.serverLon != null)
+            ? latLonToMap(widget.serverLat!, widget.serverLon!)
+            : _serverPin;
         return CustomPaint(
           painter: _WorldMapPainter(
             focus: eased,
             pulse: _pulseCtrl.value,
             accent: widget.accent,
+            serverPin: serverPin,
           ),
           size: Size.infinite,
         );
@@ -163,8 +190,14 @@ class _WorldMapPainter extends CustomPainter {
   final double focus;
   final double pulse;
   final Color accent;
+  final Offset serverPin;
 
-  _WorldMapPainter({required this.focus, required this.pulse, required this.accent});
+  _WorldMapPainter({
+    required this.focus,
+    required this.pulse,
+    required this.accent,
+    required this.serverPin,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -187,8 +220,10 @@ class _WorldMapPainter extends CustomPainter {
     // Camera: cover-fit the 320x172 map, then ease toward the route.
     final cover = math.max(size.width / 320, size.height / 172) * 1.04;
     final scale = cover * (1 + 0.45 * focus);
-    final cx = 160 + (246 - 160) * focus;
-    final cy = 86 + (74 - 86) * focus;
+    final routeMidX = (_homePin.dx + serverPin.dx) / 2;
+    final routeMidY = (_homePin.dy + serverPin.dy) / 2;
+    final cx = 160 + (routeMidX - 160) * focus;
+    final cy = 86 + (routeMidY - 86) * focus;
     canvas.save();
     canvas.translate(size.width / 2 - cx * scale, size.height / 2 - cy * scale);
     canvas.scale(scale);
@@ -276,7 +311,7 @@ class _WorldMapPainter extends CustomPainter {
     }
 
     // Route (faint full arc + animated solid arc).
-    final route = _routePath();
+    final route = _routePath(serverPin);
     final faintPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4
@@ -317,7 +352,7 @@ class _WorldMapPainter extends CustomPainter {
     // Pins.
     _drawPin(canvas, _homePin, const Color(0xFF38BDF8), 0);
     if (focus > 0.02) {
-      _drawPin(canvas, _serverPin, const Color(0xFFF472B6), 0.35);
+      _drawPin(canvas, serverPin, const Color(0xFFF472B6), 0.35);
     }
 
     canvas.restore();
@@ -344,5 +379,8 @@ class _WorldMapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WorldMapPainter old) =>
-      old.focus != focus || old.pulse != pulse || old.accent != accent;
+      old.focus != focus ||
+      old.pulse != pulse ||
+      old.accent != accent ||
+      old.serverPin != serverPin;
 }

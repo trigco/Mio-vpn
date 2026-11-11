@@ -40,6 +40,18 @@ class DnsttConfig {
   String? sshPassword;
   String? sshPrivateKey;
 
+  /// SSH server port as given by the provider (default 22).
+  /// Note: with DNSTT/Slipstream tunnels the effective SSH port is the one
+  /// the tunnel server forwards to; this value is stored with the config
+  /// so provider configs keep their port information.
+  int? sshPort;
+
+  /// SOCKS5 username/password authentication (only used when
+  /// tunnelType is socks5). Used by the VPN service's SOCKS5 client when
+  /// the server-side SOCKS proxy requires RFC 1929 authentication.
+  String? socksUsername;
+  String? socksPassword;
+
   /// Slipstream-specific settings (only used when transportType is slipstream)
   /// Congestion control algorithm: "bbr" or "dcubic" (default: "dcubic")
   String? congestionControl;
@@ -58,6 +70,9 @@ class DnsttConfig {
     this.sshUsername,
     this.sshPassword,
     this.sshPrivateKey,
+    this.sshPort,
+    this.socksUsername,
+    this.socksPassword,
     this.congestionControl,
     this.keepAliveInterval,
     this.gsoEnabled,
@@ -73,6 +88,9 @@ class DnsttConfig {
         'sshUsername': sshUsername,
         'sshPassword': sshPassword,
         'sshPrivateKey': sshPrivateKey,
+        'sshPort': sshPort,
+        'socksUsername': socksUsername,
+        'socksPassword': socksPassword,
         'congestionControl': congestionControl,
         'keepAliveInterval': keepAliveInterval,
         'gsoEnabled': gsoEnabled,
@@ -88,6 +106,11 @@ class DnsttConfig {
         sshUsername: json['sshUsername'],
         sshPassword: json['sshPassword'],
         sshPrivateKey: json['sshPrivateKey'],
+        sshPort: json['sshPort'] is int
+            ? json['sshPort']
+            : int.tryParse(json['sshPort']?.toString() ?? ''),
+        socksUsername: json['socksUsername'],
+        socksPassword: json['socksPassword'],
         congestionControl: json['congestionControl'],
         keepAliveInterval: json['keepAliveInterval'],
         gsoEnabled: json['gsoEnabled'],
@@ -154,6 +177,9 @@ class DnsttConfig {
     String? sshUsername,
     String? sshPassword,
     String? sshPrivateKey,
+    int? sshPort,
+    String? socksUsername,
+    String? socksPassword,
     String? congestionControl,
     int? keepAliveInterval,
     bool? gsoEnabled,
@@ -168,6 +194,9 @@ class DnsttConfig {
       sshUsername: sshUsername ?? this.sshUsername,
       sshPassword: sshPassword ?? this.sshPassword,
       sshPrivateKey: sshPrivateKey ?? this.sshPrivateKey,
+      sshPort: sshPort ?? this.sshPort,
+      socksUsername: socksUsername ?? this.socksUsername,
+      socksPassword: socksPassword ?? this.socksPassword,
       congestionControl: congestionControl ?? this.congestionControl,
       keepAliveInterval: keepAliveInterval ?? this.keepAliveInterval,
       gsoEnabled: gsoEnabled ?? this.gsoEnabled,

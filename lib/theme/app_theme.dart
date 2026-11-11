@@ -153,7 +153,22 @@ ThemeData buildAppTheme(AppThemeOption option) {
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: option.card,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: option.cardAlt,
+      surfaceTintColor: Colors.transparent,
+      elevation: 6,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: borderSide,
+      ),
+      textStyle: TextStyle(
+        color: scheme.onSurface,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: option.card,
